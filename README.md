@@ -20,8 +20,8 @@ The project demonstrates the fundamentals of network communication, TCP sockets,
 ```text
 TCP-Image-Transfer/
 │
-├── client.py
-├── server.py
+├── client_raw.py
+├── server-raw.py
 ├── .gitignore
 └── README.md
 ```
