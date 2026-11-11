@@ -1,4 +1,3 @@
-
 import socket
 import struct
 import time
@@ -22,6 +21,16 @@ def recv_exact(sock, n):
         data.extend(chunk)
 
     return bytes(data)
+
+
+def calculate_psnr(img1, img2):
+    """Evaluate the quality of reconstructed images using PSNR."""
+    mse = np.mean((img1.astype(np.float64) - img2.astype(np.float64)) ** 2)
+    if mse == 0:
+        return float('inf')
+    max_pixel = 255.0
+    psnr = 20 * np.log10(max_pixel / np.sqrt(mse))
+    return psnr
 
 
 def run_server():
@@ -54,12 +63,6 @@ def run_server():
 
         print(f"Header received: {width}x{height}, payload = {payload_length} bytes")
 
-        pixels = height * width
-
-        if pixels == 0 or payload_length % pixels != 0:
-            print("Error: payload length does not match the image dimensions.")
-            return
-
         # TODO 7: Read the exact image payload.
         payload = recv_exact(conn, payload_length)
 
@@ -67,20 +70,32 @@ def run_server():
             print("Error: Connection closed before the complete image payload was received.")
             return
 
-        # TODO 8: Reconstruct the image.
-        channels = payload_length // pixels
-        img = np.frombuffer(payload, dtype=np.uint8).reshape(
-            (height, width, channels)
-        )
+        # TODO 8: Reconstruct the image by decoding the compressed payload.
+        nparr = np.frombuffer(payload, dtype=np.uint8)
+        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        # NEW: Save the received image.
+        if img is None:
+            print("Error: Failed to decode the received compressed image payload.")
+            return
+
+        # Save the received image.
         output_path = "received_image.png"
         save_success = cv2.imwrite(output_path, img)
 
         if save_success:
-            print(f"Received image saved successfully: {output_path}")
+            print(f"Received compressed image saved successfully: {output_path}")
         else:
             print("Error: Could not save the received image.")
+
+        # Evaluate the quality of reconstructed images
+        original_img_path = "test_image.png"
+        original_img = cv2.imread(original_img_path)
+
+        if original_img is not None and original_img.shape == img.shape:
+            psnr_value = calculate_psnr(original_img, img)
+            print(f"Quality Evaluation | PSNR: {psnr_value:.2f} dB")
+        else:
+            print("Quality Evaluation | Original reference image not found for comparison.")
 
         # TODO 9: Calculate network performance metrics.
         elapsed = time.time() - start_time
@@ -90,7 +105,7 @@ def run_server():
             payload_length / (elapsed * 1024) if elapsed > 0 else 0.0
         )
 
-        print(f"Raw Transfer Complete | Size: {HEADER_SIZE + payload_length} bytes")
+        print(f"Compressed Transfer Complete | Size: {HEADER_SIZE + payload_length} bytes")
         print(
             f"Metrics | Latency: {latency_ms:.3f} ms | "
             f"Packet loss: {packet_loss:.2f} % | "
