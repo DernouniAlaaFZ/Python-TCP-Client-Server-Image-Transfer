@@ -26,29 +26,17 @@ def generate_test_image(IMAGE_PATH, width, height):
     cv2.imwrite(IMAGE_PATH, image)
  
  
-def send_pixel_by_pixel(sock, header, img):
-    height, width, _ = img.shape
-    sock.sendall(header)
-    calls = 1
-    for y in range(height):
-        for x in range(width):
-            sock.sendall(img[y, x].tobytes())
-            calls += 1
-    return calls
- 
- 
 def run_client():
     IMAGE_PATH = "test_image.png"
     width = 640
     height = 480
-    mode = "pixel-by-pixel"
+    mode = "compressed-jpeg"
  
     # TODO 1: Generate the test image
     generate_test_image(IMAGE_PATH, width, height)
  
     client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     # Disable Nagle's algorithm so that small sends are not delayed for merging.
-    # This does not guarantee one TCP packet per sendall() call.
     client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
     client_socket.connect((SERVER_IP, PORT))
     print(f"Connected to server at {SERVER_IP}:{PORT} (mode: {mode})")
@@ -59,9 +47,16 @@ def run_client():
         client_socket.close()
         return
  
-    # TODO 2: Extract height, width and channels from the image shape
-    height, width, channels = img.shape
-    payload = img.tobytes()
+    # TODO 2: Extract height, width and channels from the image shape, with JPEG compression
+    h, w, channels = img.shape
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), 85]
+    success, encoded_image = cv2.imencode('.jpg', img, encode_param)
+    if not success:
+        print("Error: Image compression failed.")
+        client_socket.close()
+        return
+
+    payload = encoded_image.tobytes()
     payload_length = len(payload)
  
     try:
@@ -69,14 +64,16 @@ def run_client():
  
         # TODO 3: Construct the fixed-size header:
         # Height (2 bytes), Width (2 bytes), Payload length (4 bytes)
-        header = struct.pack('!HHI', height, width, payload_length)
+        header = struct.pack('!HHI', h, w, payload_length)
  
-        # TODO 4: Send the header and raw pixel data pixel by pixel
-        calls = send_pixel_by_pixel(client_socket, header, img)
+        # TODO 4: Send the header and the compressed image payload
+        client_socket.sendall(header)
+        client_socket.sendall(payload)
+        calls = 2  # Header send + Payload send
  
         elapsed = time.time() - start_time
-        throughput = payload_length / (elapsed * 1000000)
-        print(f"Sent raw image {width}x{height}x{channels} "
+        throughput = payload_length / (elapsed * 1000000) if elapsed > 0 else 0
+        print(f"Sent compressed image {w}x{h} "
               f"({payload_length} bytes) in {elapsed:.4f} seconds "
               f"using {calls} send call(s) ({throughput:.2f} MB/s).")
     finally:
